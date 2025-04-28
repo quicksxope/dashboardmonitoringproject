@@ -12,7 +12,7 @@ def main():
     # Check if a file has been uploaded
     if uploaded_file is not None:
         # Read the uploaded Excel file
-        xls = pd.ExcelFile(uploaded_file)
+        xls = pd.ExcelFile("/data/project pt inca.xlsx")
 
         # Get sheet names
         sheet_names = xls.sheet_names

@@ -1,75 +1,180 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from datetime import datetime
+import unicodedata
+import re
+
+def clean_text(x):
+    if pd.isna(x):
+        return ''
+    x = unicodedata.normalize('NFKD', str(x)).encode('ascii', 'ignore').decode('utf-8')
+    x = re.sub(r'\s+', ' ', x)
+    return x.strip().upper()
+
+st.set_page_config(page_title="📊 PT INCA Dashboard", layout="wide")
+
+@st.cache_data
+def load_data(file):
+    df = pd.read_excel(file, sheet_name="BASE DATA (wajib update)")
+    df.columns = df.columns.str.strip()
+    for col in ['KONTRAK', 'JENIS PEKERJAAN', 'STATUS']:
+        if col in df.columns:
+            df[col] = df[col].apply(clean_text)
+    df['% COMPLETE'] = df['% COMPLETE'].apply(lambda x: x * 100 if x <= 1 else x)
+    return df
+
+def card(title, value, sub, icon="✅", bg="#ffffff"):
+    return f"""
+    <div style="padding:1rem; background:{bg}; border-radius:1rem; box-shadow:0 2px 6px rgba(0,0,0,0.06); text-align:center">
+        <div style="font-size:1.5rem;">{icon}</div>
+        <div style="font-size:1.2rem; font-weight:600">{title}</div>
+        <div style="font-size:2rem; font-weight:700; margin:0.3rem 0;">{value}</div>
+        <div style="color:gray">{sub}</div>
+    </div>
+    """
 
 def main():
-    # Title of the app
-    st.title('Upload Excel File, Filter Data, and Visualize')
+    st.markdown("<h2 style='margin-bottom: 1rem;'>📋 Project Monitoring Dashboard</h2>", unsafe_allow_html=True)
+    uploaded_file = st.sidebar.file_uploader("📂 Upload Excel File", type="xlsx")
+    if not uploaded_file:
+        st.warning("Please upload an Excel file to continue.")
+        return
 
-    # File uploader widget for uploading the Excel file
-    uploaded_file = st.file_uploader("Choose an Excel file", type="xlsx")
+    original_df = load_data(uploaded_file)
+    df = original_df.copy()
 
-    # Check if a file has been uploaded
-    if uploaded_file is not None:
-        # Read the uploaded Excel file
-        xls = pd.ExcelFile(uploaded_file)
+    kontrak_opts = ['All'] + sorted(original_df['KONTRAK'].dropna().unique())
+    selected_kontrak = st.sidebar.selectbox("Filter by KONTRAK", kontrak_opts)
 
-        # Get sheet names
-        sheet_names = xls.sheet_names
+    filter_columns = [col for col in df.columns if col not in ['KONTRAK', 'NO']]
+    selected_filter_col = st.sidebar.selectbox("Filter Column", filter_columns)
+    filter_values = ['All'] + sorted(original_df[selected_filter_col].dropna().unique())
+    selected_filter_val = st.sidebar.selectbox("Select Value", filter_values)
 
-        # Show available sheets in the sidebar
-        st.sidebar.write("📑 Available Sheets:", sheet_names)
+    if selected_kontrak != 'All':
+        df = df[df['KONTRAK'] == selected_kontrak]
+    if selected_filter_val != 'All':
+        df = df[df[selected_filter_col] == selected_filter_val]
 
-        # Let user select a sheet
-        selected_sheet = st.sidebar.selectbox("Select a Sheet", sheet_names)
+    total_tasks = len(df)
+    completed = (df['STATUS'] == 'SELESAI').sum()
+    upcoming = (pd.to_datetime(df['PLAN END'], errors='coerce') - datetime.today()).dt.days.between(0, 7).sum()
+    ongoing = (df['STATUS'] == 'DALAM PROSES').sum()
+    pending = df[df['STATUS'].isin(['TUNDA', 'BELUM MULAI'])].shape[0]
 
-        # Read the selected sheet
-        df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.markdown(card("Tasks Completed", f"{completed}/{total_tasks}", "Done", "✅", "#e3f2fd"), unsafe_allow_html=True)
+    with c2: st.markdown(card("Upcoming Deadlines", upcoming, "Within 7 Days", "📅", "#f1f8e9"), unsafe_allow_html=True)
+    with c3: st.markdown(card("In Progress", ongoing, "Active Tasks", "🚧", "#fff3e0"), unsafe_allow_html=True)
+    with c4: st.markdown(card("Pending Issues", pending, "Status: Tunda/Belum Mulai", "⚠️", "#ffebee"), unsafe_allow_html=True)
 
-        # Show available columns for filtering
-        st.sidebar.write("📝 Available Columns for Filtering:")
-        columns = df.columns.tolist()
-        selected_column = st.sidebar.selectbox("Select a Column to Filter", columns)
+    # --- Weighted Progress (still uses original_df for full project view) ---
+    st.markdown("### 🎯 Weighted Progress by Bobot × % Complete (All Projects)")
+    colA, colB = st.columns(2)
+    for project, col in zip(['PROJECT 1 A', 'PROJECT 1 B'], [colA, colB]):
+        proj_df = original_df[original_df['KONTRAK'] == project]
+        if not proj_df.empty:
+            weighted = (proj_df['BOBOT'] * proj_df['% COMPLETE']).sum()
+            total_bobot = proj_df['BOBOT'].sum()
+            progress = (weighted / total_bobot) if total_bobot else 0
+            with col:
+                st.markdown(f"**📌 {project}**")
+                st.progress(int(progress))
+                st.caption(f"Progress: **{progress:.2f}%**")
+        else:
+            with col:
+                st.markdown(f"**📌 {project}**")
+                st.info("No data available.")
 
-        # Show unique values in the selected column to filter by
-        unique_values = df[selected_column].dropna().unique()
-        selected_value = st.sidebar.selectbox(f"Select a value for {selected_column}", unique_values)
+    # --- Timeline & Table ---
+    st.markdown("### 🗓 Project Timeline & Task Table")
+    col_timeline, col_table = st.columns([1.3, 1])
+    with col_timeline:
+        if {'START', 'PLAN END'}.issubset(df.columns):
+            df_timeline = df[['KONTRAK', 'START', 'PLAN END', 'STATUS']].dropna()
+            df_timeline = df_timeline.rename(columns={'KONTRAK': 'Task'})
+            color_map = {
+                'SELESAI': 'green',
+                'DALAM PROSES': 'blue',
+                'TUNDA': 'orange',
+                'BELUM MULAI': 'red'
+            }
+            fig = px.timeline(df_timeline, x_start='START', x_end='PLAN END', y='Task', color='STATUS', color_discrete_map=color_map)
+            fig.update_yaxes(autorange="reversed")
+            fig.update_layout(height=350)
+            st.plotly_chart(fig, use_container_width=True)
 
-        # Filter the dataframe based on the selected column and value
-        filtered_df = df[df[selected_column] == selected_value]
+    with col_table:
+        show_cols = ['KONTRAK', 'JENIS PEKERJAAN', 'STATUS', 'PLAN END', 'BOBOT']
+        table_df = df[show_cols].rename(columns={
+            'KONTRAK': 'Project',
+            'JENIS PEKERJAAN': 'Task',
+            'PLAN END': 'Due Date',
+            'BOBOT': 'Weight'
+        })
+        st.dataframe(table_df, use_container_width=True, height=350)
 
-        # Display the filtered DataFrame as a table in the Streamlit app
-        st.write(f"Filtered Data (showing rows where '{selected_column}' = '{selected_value}'):")
-        st.dataframe(filtered_df)
+    # --- Pie Chart: Task Distribution ---
+    st.markdown("### 📊 Task Distribution & Issues")
+    c1, c2 = st.columns(2)
+    with c1:
+        status_counts = df['STATUS'].value_counts().reset_index()
+        status_counts.columns = ['Status', 'Count']
+        color_map = {
+            'SELESAI': 'green',
+            'DALAM PROSES': 'blue',
+            'TUNDA': 'orange',
+            'BELUM MULAI': 'red'
+        }
+        fig_status = px.pie(
+            status_counts, names='Status', values='Count', hole=0.4,
+            title="Status Breakdown",
+            color='Status',
+            color_discrete_map=color_map
+        )
+        st.plotly_chart(fig_status, use_container_width=True)
 
-        # Add a download button for the filtered data
-        csv = filtered_df.to_csv(index=False)
-        st.download_button(label="Download Filtered Data", data=csv, file_name="filtered_data.csv", mime="text/csv")
+    with c2:
+        pending_df = df[df['STATUS'].isin(['TUNDA', 'BELUM MULAI'])]
+        if not pending_df.empty:
+            pending_count = pending_df['KONTRAK'].value_counts().reset_index()
+            pending_count.columns = ['KONTRAK', 'Pending Count']
+            fig_pending = px.bar(
+                pending_count, x='KONTRAK', y='Pending Count',
+                title="Projects with Pending Tasks"
+            )
+            st.plotly_chart(fig_pending, use_container_width=True)
+        else:
+            st.info("No 'Tunda' or 'Belum Mulai' tasks to display.")
 
-        # Visualization 1: Pie Chart (for categorical data)
-        if 'STATUS' in filtered_df.columns:
-            status_counts = filtered_df['STATUS'].value_counts().reset_index()
-            status_counts.columns = ['Status', 'Count']
-            fig_pie = px.pie(status_counts, names='Status', values='Count', title='Status Distribution', 
-                             color='Status', color_discrete_map={"Completed": "green", "In Progress": "orange", "Pending": "red"})
-            st.plotly_chart(fig_pie)
+    # --- Late Tasks Section ---
+    st.markdown("### 🕰 Overdue Tasks")
+    late_df = df[(pd.to_datetime(df['PLAN END'], errors='coerce') < datetime.today()) & (df['STATUS'] != 'SELESAI')]
+    late_df['LATE DAYS'] = (datetime.today() - pd.to_datetime(late_df['PLAN END'], errors='coerce')).dt.days
 
-        # Visualization 2: Bar Chart (for numerical data)
-        if 'KONTRAK' in filtered_df.columns and 'SISA DURASI KONTRAK' in filtered_df.columns:
-            task_counts = filtered_df.groupby('KONTRAK').size().reset_index(name='Task Count')
-            fig_bar = px.bar(task_counts, x='KONTRAK', y='Task Count', title='Task Counts per Project', 
-                             color='Task Count', color_continuous_scale='Viridis', labels={'Task Count': 'Number of Tasks'})
-            st.plotly_chart(fig_bar)
+    if not late_df.empty:
+        total_late_tasks = len(late_df)
+        total_late_days = late_df['LATE DAYS'].sum()
 
-        # Visualization 3: Scatter Plot (optional, if numerical data is present)
-        if 'KONTRAK' in filtered_df.columns and 'SISA DURASI KONTRAK' in filtered_df.columns:
-            fig_scatter = px.scatter(filtered_df, x='KONTRAK', y='SISA DURASI KONTRAK', color='STATUS', 
-                                     title='Task Duration vs Project', 
-                                     color_discrete_map={"Completed": "green", "In Progress": "orange", "Pending": "red"})
-            st.plotly_chart(fig_scatter)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(card("Late Tasks", f"{total_late_tasks} tasks", "Tasks overdue", "⏳", "#ffebee"), unsafe_allow_html=True)
+        with c2:
+            st.markdown(card("Total Late Days", f"{total_late_days}", "Total days overdue", "⚠️", "#ffe0e0"), unsafe_allow_html=True)
 
+        late_df_display = late_df[['KONTRAK', 'JENIS PEKERJAAN', 'LATE DAYS']]
+        late_df_display = late_df_display.rename(columns={
+            'KONTRAK': 'Project',
+            'JENIS PEKERJAAN': 'Task',
+            'LATE DAYS': 'Days Late'
+        })
+        st.dataframe(late_df_display, use_container_width=True, height=350)
     else:
-        st.write("Please upload an Excel file to display the data.")
+        st.info("No overdue tasks found.")
+
+    st.success("✅ Dashboard rendered successfully.")
 
 if __name__ == "__main__":
     main()
+

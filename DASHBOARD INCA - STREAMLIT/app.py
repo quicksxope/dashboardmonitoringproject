@@ -14,6 +14,27 @@ def clean_text(x):
 
 st.set_page_config(page_title="📊 PT INCA Dashboard", layout="wide")
 
+# Mobile styling
+st.markdown("""
+<style>
+@media (max-width: 768px) {
+    .element-container {
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
+    div[data-testid="column"] > div {
+        margin-bottom: 1rem;
+    }
+    h2 {
+        font-size: 1.4rem !important;
+    }
+    .stMarkdown > div {
+        font-size: 0.95rem;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
 @st.cache_data
 def load_data(file):
     df = pd.read_excel(file, sheet_name="BASE DATA (wajib update)")
@@ -63,13 +84,20 @@ def main():
     ongoing = (df['STATUS'] == 'DALAM PROSES').sum()
     pending = df[df['STATUS'].isin(['TUNDA', 'BELUM MULAI'])].shape[0]
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: st.markdown(card("Tasks Completed", f"{completed}/{total_tasks}", "Done", "✅", "#e3f2fd"), unsafe_allow_html=True)
-    with c2: st.markdown(card("Upcoming Deadlines", upcoming, "Within 7 Days", "📅", "#f1f8e9"), unsafe_allow_html=True)
-    with c3: st.markdown(card("In Progress", ongoing, "Active Tasks", "🚧", "#fff3e0"), unsafe_allow_html=True)
-    with c4: st.markdown(card("Pending Issues", pending, "Status: Tunda/Belum Mulai", "⚠️", "#ffebee"), unsafe_allow_html=True)
+    # Responsive 2x2 Cards
+    row1c1, row1c2 = st.columns(2)
+    with row1c1:
+        st.markdown(card("Tasks Completed", f"{completed}/{total_tasks}", "Done", "✅", "#e3f2fd"), unsafe_allow_html=True)
+    with row1c2:
+        st.markdown(card("Upcoming Deadlines", upcoming, "Within 7 Days", "📅", "#f1f8e9"), unsafe_allow_html=True)
 
-    # --- Weighted Progress (still uses original_df for full project view) ---
+    row2c1, row2c2 = st.columns(2)
+    with row2c1:
+        st.markdown(card("In Progress", ongoing, "Active Tasks", "🚧", "#fff3e0"), unsafe_allow_html=True)
+    with row2c2:
+        st.markdown(card("Pending Issues", pending, "Status: Tunda/Belum Mulai", "⚠️", "#ffebee"), unsafe_allow_html=True)
+
+    # --- Weighted Progress ---
     st.markdown("### 🎯 Weighted Progress by Bobot × % Complete (All Projects)")
     colA, colB = st.columns(2)
     for project, col in zip(['PROJECT 1 A', 'PROJECT 1 B'], [colA, colB]):
@@ -87,7 +115,7 @@ def main():
                 st.markdown(f"**📌 {project}**")
                 st.info("No data available.")
 
-    # --- Timeline & Table ---
+    # --- Timeline & Task Table ---
     st.markdown("### 🗓 Project Timeline & Task Table")
     col_timeline, col_table = st.columns([1.3, 1])
     with col_timeline:
@@ -115,18 +143,13 @@ def main():
         })
         st.dataframe(table_df, use_container_width=True, height=350)
 
-    # --- Pie Chart: Task Distribution ---
+   # --- Status Pie & Pending Chart ---
     st.markdown("### 📊 Task Distribution & Issues")
     c1, c2 = st.columns(2)
+
     with c1:
         status_counts = df['STATUS'].value_counts().reset_index()
         status_counts.columns = ['Status', 'Count']
-        color_map = {
-            'SELESAI': 'green',
-            'DALAM PROSES': 'blue',
-            'TUNDA': 'orange',
-            'BELUM MULAI': 'red'
-        }
         fig_status = px.pie(
             status_counts, names='Status', values='Count', hole=0.4,
             title="Status Breakdown",
@@ -136,17 +159,30 @@ def main():
         st.plotly_chart(fig_status, use_container_width=True)
 
     with c2:
-        pending_df = df[df['STATUS'].isin(['TUNDA', 'BELUM MULAI'])]
+        pending_df = df[df['STATUS'].isin(['TUNDA', 'BELUM MULAI'])]  # Combined logic
         if not pending_df.empty:
             pending_count = pending_df['KONTRAK'].value_counts().reset_index()
             pending_count.columns = ['KONTRAK', 'Pending Count']
             fig_pending = px.bar(
-                pending_count, x='KONTRAK', y='Pending Count',
-                title="Projects with Pending Tasks"
+                pending_count,
+                x='Pending Count',
+                y='KONTRAK',
+                orientation='h',
+                text='Pending Count',
+                title="Projects with Pending Tasks",
+                color='Pending Count',
+                color_continuous_scale='Oranges'
+            )
+            fig_pending.update_layout(
+                yaxis_title="Project",
+                xaxis_title="Pending Tasks",
+                height=400,
+                margin=dict(l=40, r=10, t=40, b=40)
             )
             st.plotly_chart(fig_pending, use_container_width=True)
         else:
             st.info("No 'Tunda' or 'Belum Mulai' tasks to display.")
+
 
     # --- Late Tasks Section ---
     st.markdown("### 🕰 Overdue Tasks")
@@ -157,10 +193,10 @@ def main():
         total_late_tasks = len(late_df)
         total_late_days = late_df['LATE DAYS'].sum()
 
-        c1, c2 = st.columns(2)
-        with c1:
+        rowL1, rowL2 = st.columns(2)
+        with rowL1:
             st.markdown(card("Late Tasks", f"{total_late_tasks} tasks", "Tasks overdue", "⏳", "#ffebee"), unsafe_allow_html=True)
-        with c2:
+        with rowL2:
             st.markdown(card("Total Late Days", f"{total_late_days}", "Total days overdue", "⚠️", "#ffe0e0"), unsafe_allow_html=True)
 
         late_df_display = late_df[['KONTRAK', 'JENIS PEKERJAAN', 'LATE DAYS']]
@@ -177,4 +213,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

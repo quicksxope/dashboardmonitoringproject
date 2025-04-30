@@ -31,6 +31,30 @@ st.markdown("""
     .stMarkdown > div {
         font-size: 0.95rem;
     }
+    body {
+        background-color: #121212 !important;
+        color: #ffffff !important;
+    }
+    .element-container div {
+        background-color: #2c2c2c !important;
+        color: #ffffff !important;
+    }
+    .stMarkdown div {
+        color: #ffffff !important;
+    }
+    .stButton, .stLink, .stCheckbox {
+        color: #00aaff !important;
+    }
+    h2 {
+        color: #ffffff !important;
+    }
+    .stDataFrame, .stTable {
+        background-color: #333333 !important;
+        color: #ffffff !important;
+    }
+    .plotly-graph-div {
+        background-color: #121212 !important;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -84,7 +108,6 @@ def main():
     ongoing = (df['STATUS'] == 'DALAM PROSES').sum()
     pending = df[df['STATUS'].isin(['TUNDA', 'BELUM MULAI'])].shape[0]
 
-    # Responsive 2x2 Cards
     row1c1, row1c2 = st.columns(2)
     with row1c1:
         st.markdown(card("Tasks Completed", f"{completed}/{total_tasks}", "Done", "✅", "#e3f2fd"), unsafe_allow_html=True)
@@ -97,11 +120,11 @@ def main():
     with row2c2:
         st.markdown(card("Pending Issues", pending, "Status: Tunda/Belum Mulai", "⚠️", "#ffebee"), unsafe_allow_html=True)
 
-    # --- Weighted Progress ---
-    st.markdown("### 🎯 Weighted Progress by Bobot × % Complete (All Projects)")
+    # Weighted Progress
+    st.markdown("### 🎯 Weighted Progress by Bobot × % Complete (Filtered Projects)")
     colA, colB = st.columns(2)
     for project, col in zip(['PROJECT 1 A', 'PROJECT 1 B'], [colA, colB]):
-        proj_df = original_df[original_df['KONTRAK'] == project]
+        proj_df = df[df['KONTRAK'] == project]  # Use filtered df
         if not proj_df.empty:
             weighted = (proj_df['BOBOT'] * proj_df['% COMPLETE']).sum()
             total_bobot = proj_df['BOBOT'].sum()
@@ -115,18 +138,22 @@ def main():
                 st.markdown(f"**📌 {project}**")
                 st.info("No data available.")
 
-    # --- Timeline & Task Table ---
+    # Timeline & Table
     st.markdown("### 🗓 Project Timeline & Task Table")
     col_timeline, col_table = st.columns([1.3, 1])
     with col_timeline:
         if {'START', 'PLAN END'}.issubset(df.columns):
-            df_timeline = df[['KONTRAK', 'START', 'PLAN END', 'STATUS']].dropna()
+            timeline_cols = ['KONTRAK', 'START', 'PLAN END', 'STATUS']
+            if selected_filter_col in df.columns:
+                timeline_cols.insert(1, selected_filter_col)
+            df_timeline = df[timeline_cols].dropna()
             df_timeline = df_timeline.rename(columns={'KONTRAK': 'Task'})
             color_map = {
                 'SELESAI': 'green',
                 'DALAM PROSES': 'blue',
                 'TUNDA': 'orange',
-                'BELUM MULAI': 'red'
+                'BELUM MULAI': 'orange',
+                'TERLAMBAT': 'red'
             }
             fig = px.timeline(df_timeline, x_start='START', x_end='PLAN END', y='Task', color='STATUS', color_discrete_map=color_map)
             fig.update_yaxes(autorange="reversed")
@@ -134,16 +161,27 @@ def main():
             st.plotly_chart(fig, use_container_width=True)
 
     with col_table:
-        show_cols = ['KONTRAK', 'JENIS PEKERJAAN', 'STATUS', 'PLAN END', 'BOBOT']
-        table_df = df[show_cols].rename(columns={
+        table_cols = ['KONTRAK', 'JENIS PEKERJAAN', 'STATUS', 'PLAN END', 'BOBOT']
+        if selected_filter_col in df.columns and selected_filter_col not in table_cols:
+            table_cols.insert(1, selected_filter_col)
+        table_df = df[table_cols].copy()
+        
+        rename_map = {
             'KONTRAK': 'Project',
             'JENIS PEKERJAAN': 'Task',
             'PLAN END': 'Due Date',
             'BOBOT': 'Weight'
-        })
+        }
+
+        # Remove duplicate key if selected_filter_col conflicts with renames
+        if selected_filter_col in rename_map:
+            rename_map.pop(selected_filter_col)
+
+        table_df = table_df.rename(columns=rename_map)
         st.dataframe(table_df, use_container_width=True, height=350)
 
-   # --- Status Pie & Pending Chart ---
+
+    # Status & Pending
     st.markdown("### 📊 Task Distribution & Issues")
     c1, c2 = st.columns(2)
 
@@ -154,25 +192,38 @@ def main():
             status_counts, names='Status', values='Count', hole=0.4,
             title="Status Breakdown",
             color='Status',
-            color_discrete_map=color_map
+            color_discrete_map=color_map  # Updated color_map with red and orange
         )
         st.plotly_chart(fig_status, use_container_width=True)
 
     with c2:
-        pending_df = df[df['STATUS'].isin(['TUNDA', 'BELUM MULAI'])]  # Combined logic
+        pending_df = df[df['STATUS'].isin(['TUNDA', 'BELUM MULAI'])]
         if not pending_df.empty:
-            pending_count = pending_df['KONTRAK'].value_counts().reset_index()
-            pending_count.columns = ['KONTRAK', 'Pending Count']
-            fig_pending = px.bar(
-                pending_count,
-                x='Pending Count',
-                y='KONTRAK',
-                orientation='h',
-                text='Pending Count',
-                title="Projects with Pending Tasks",
-                color='Pending Count',
-                color_continuous_scale='Oranges'
-            )
+            if selected_filter_col in df.columns:
+                pending_group = pending_df.groupby(['KONTRAK', selected_filter_col]).size().reset_index(name='Pending Count')
+                fig_pending = px.bar(
+                    pending_group,
+                    x='Pending Count',
+                    y='KONTRAK',
+                    color=selected_filter_col,
+                    orientation='h',
+                    text='Pending Count',
+                    title="Projects with Pending Tasks",
+                    color_discrete_sequence=px.colors.sequential.Oranges  # This ensures that Pending tasks are shown in shades of orange
+                )
+            else:
+                pending_count = pending_df['KONTRAK'].value_counts().reset_index()
+                pending_count.columns = ['KONTRAK', 'Pending Count']
+                fig_pending = px.bar(
+                    pending_count,
+                    x='Pending Count',
+                    y='KONTRAK',
+                    orientation='h',
+                    text='Pending Count',
+                    title="Projects with Pending Tasks",
+                    color='Pending Count',
+                    color_continuous_scale='Oranges'  # Orange color for pending tasks
+                )
             fig_pending.update_layout(
                 yaxis_title="Project",
                 xaxis_title="Pending Tasks",
@@ -183,8 +234,7 @@ def main():
         else:
             st.info("No 'Tunda' or 'Belum Mulai' tasks to display.")
 
-
-    # --- Late Tasks Section ---
+    # Overdue Tasks
     st.markdown("### 🕰 Overdue Tasks")
     late_df = df[(pd.to_datetime(df['PLAN END'], errors='coerce') < datetime.today()) & (df['STATUS'] != 'SELESAI')]
     late_df['LATE DAYS'] = (datetime.today() - pd.to_datetime(late_df['PLAN END'], errors='coerce')).dt.days
@@ -199,13 +249,25 @@ def main():
         with rowL2:
             st.markdown(card("Total Late Days", f"{total_late_days}", "Total days overdue", "⚠️", "#ffe0e0"), unsafe_allow_html=True)
 
-        late_df_display = late_df[['KONTRAK', 'JENIS PEKERJAAN', 'LATE DAYS']]
-        late_df_display = late_df_display.rename(columns={
+        late_cols = ['KONTRAK', 'JENIS PEKERJAAN', 'LATE DAYS']
+        if selected_filter_col in late_df.columns and selected_filter_col not in late_cols:
+            late_cols.insert(1, selected_filter_col)
+
+        late_df_display = late_df[late_cols].copy()
+
+        rename_map = {
             'KONTRAK': 'Project',
             'JENIS PEKERJAAN': 'Task',
             'LATE DAYS': 'Days Late'
-        })
+        }
+
+        # Avoid duplicate renames
+        if selected_filter_col in rename_map:
+            rename_map.pop(selected_filter_col)
+
+        late_df_display = late_df_display.rename(columns=rename_map)
         st.dataframe(late_df_display, use_container_width=True, height=350)
+
     else:
         st.info("No overdue tasks found.")
 

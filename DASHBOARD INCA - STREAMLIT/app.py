@@ -1244,21 +1244,24 @@ def main():
             total_late_tasks = len(late_df)
             total_late_days = late_df['LATE DAYS'].sum()
 
-            rowL1, rowL2 = st.columns(2)
-            with rowL1:
+            # Create two columns: one for cards, one for table
+            colL1, colL2 = st.columns([1, 2])  # Adjust ratio as needed
+
+            with colL1:
                 st.markdown(card("Late Tasks", f"{total_late_tasks} tasks", "Tasks overdue", "⏳", "#ffebee"), unsafe_allow_html=True)
-            with rowL2:
                 st.markdown(card("Total Late Days", f"{total_late_days}", "Total days overdue", "⚠️", "#ffe0e0"), unsafe_allow_html=True)
 
-            late_df_display = late_df[['KONTRAK', 'JENIS PEKERJAAN', 'LATE DAYS']]
-            late_df_display = late_df_display.rename(columns={
-                'KONTRAK': 'Project',
-                'JENIS PEKERJAAN': 'Task',
-                'LATE DAYS': 'Days Late'
-            })
-            st.dataframe(late_df_display, use_container_width=True, height=350)
+            with colL2:
+                late_df_display = late_df[['KONTRAK', 'JENIS PEKERJAAN', 'LATE DAYS']]
+                late_df_display = late_df_display.rename(columns={
+                    'KONTRAK': 'Project',
+                    'JENIS PEKERJAAN': 'Task',
+                    'LATE DAYS': 'Days Late'
+                })
+                st.dataframe(late_df_display, use_container_width=True, height=350)
         else:
             st.info("No overdue tasks found.")
+
 
     # --- Task Recommendations & Prioritization ---
     with section_card("🔍 Task Recommendations"):
@@ -1566,34 +1569,7 @@ def main():
             st.error(f"Could not display zone map: {str(e)}")
             st.info("Make sure you've uploaded a file with 'AREA PEKERJAAN' or 'JENIS PEKERJAAN' columns.")
     
-    # --- Export Options ---
-    with section_card("📊 Export Reports"):
-        export_col1, export_col2, export_col3 = st.columns(3)
-        
-        with export_col1:
-            st.write("Download Current View")
-            st.markdown(get_to_csv_download_link(df, "project_data.csv", "📥 Download CSV"), unsafe_allow_html=True)
-            st.markdown(get_excel_download_link(df, "project_data.xlsx", "📥 Download Excel"), unsafe_allow_html=True)
-        
-        with export_col2:
-            report_type = st.selectbox(
-                "Generate Report",
-                ["Current Status Report", "Late Tasks Report", "Priority Tasks Report"]
-            )
-            
-            if report_type == "Current Status Report":
-                report_df = df[['KONTRAK', 'JENIS PEKERJAAN', 'STATUS', '% COMPLETE', 'PLAN END']]
-            elif report_type == "Late Tasks Report":
-                report_df = late_df[['KONTRAK', 'JENIS PEKERJAAN', 'LATE DAYS', 'PLAN END', 'BOBOT']]
-            else:  # Priority Tasks Report
-                active_df = df[df['STATUS'] != 'SELESAI'].copy()
-                active_df['PRIORITY_SCORE'] = active_df.apply(calculate_priority_score, axis=1)
-                report_df = active_df.sort_values('PRIORITY_SCORE', ascending=False)[
-                    ['KONTRAK', 'JENIS PEKERJAAN', 'STATUS', 'PLAN END', 'PRIORITY_SCORE']
-                ]
-            
-            report_filename = f"{report_type.lower().replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}"
-            st.markdown(get_excel_download_link(report_df, f"{report_filename}.xlsx", f"📥 Download {report_type}"), unsafe_allow_html=True)
+   
             
 
     

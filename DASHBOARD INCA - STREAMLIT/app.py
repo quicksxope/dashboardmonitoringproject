@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import unicodedata
 import re
 import base64
@@ -530,7 +530,8 @@ def main():
             'SELESAI': 'green',
             'DALAM PROSES': 'blue',
             'TUNDA': 'orange',
-            'BELUM MULAI': 'red'
+            'BELUM MULAI': 'yellow',
+            'TERLAMBAT' : 'red'
         }
         
         # Project filter buttons with visual indicators
@@ -906,191 +907,185 @@ def main():
             with timeline_tabs[1]:
                 if '% COMPLETE' in timeline_df.columns:
                     st.markdown("### 📊 S-Curve Progress Tracking")
-                    
-                    # Create time periods for progress tracking (weekly)
+
+                    # ✅ Normalize % COMPLETE to 0–1 scale if needed
+                    if timeline_df['% COMPLETE'].max() > 1.5:
+                        timeline_df['% COMPLETE'] = timeline_df['% COMPLETE'] / 100
+
+                    # Generate weekly intervals
                     min_date = timeline_df['START'].min().date()
                     max_date = timeline_df['PLAN END'].max().date()
-                    
-                    # Create weekly time buckets
                     time_periods = []
                     current = min_date
                     while current <= max_date:
                         time_periods.append(current)
                         current += timedelta(days=7)
-                    
-                    # Calculate cumulative progress for each period
+
+                    # Calculate progress
                     progress_data = []
-                    
+                    today_date = date.today()
+
                     for period in time_periods:
-                        # Calculate planned progress as of this date
                         planned_progress = 0
                         actual_progress = 0
                         total_weight = 0
-                        
+
                         for _, row in timeline_df.iterrows():
-                            # Skip tasks that haven't started by this period
                             if row['START'].date() > period:
                                 continue
-                                
-                            # Get task weight (default to 1 if not available)
-                            weight = row.get('BOBOT', 1)
+
+                            weight = row.get('BOBOT', 0)
+
+                            # ❗️ SKIP rows with 0 or invalid weight
+                            if pd.isna(weight) or weight <= 0:
+                                continue
+
                             total_weight += weight
-                            
-                            # Calculate planned progress for this task as of the period date
+
+                            # Planned progress (0–1)
                             if period >= row['PLAN END'].date():
-                                # Task should be complete by this date
-                                task_planned = 100
+                                task_planned = 1.0
+                            elif period < row['START'].date():
+                                task_planned = 0.0
                             else:
-                                # Task should be partially complete
                                 total_days = (row['PLAN END'] - row['START']).days
-                                if total_days <= 0:
-                                    task_planned = 100  # Task starts and ends on same day
-                                else:
-                                    days_passed = (period - row['START'].date()).days
-                                    task_planned = min(100, max(0, (days_passed / total_days) * 100))
-                            
-                            # Get actual progress
-                            task_actual = min(100, row['% COMPLETE'])
-                            
-                            # Add weighted progress
+                                days_passed = (period - row['START'].date()).days
+                                task_planned = days_passed / total_days if total_days > 0 else 1.0
+
+                            # Actual progress
+                            if period >= today_date:
+                                task_actual = row['% COMPLETE']
+                            elif period < row['START'].date():
+                                task_actual = 0.0
+                            else:
+                                total_days = (today_date - row['START'].date()).days
+                                days_passed = (period - row['START'].date()).days
+                                task_actual = min(
+                                    row['% COMPLETE'],
+                                    (days_passed / total_days) * row['% COMPLETE'] if total_days > 0 else 0
+                                )
+
                             planned_progress += task_planned * weight
                             actual_progress += task_actual * weight
-                        
-                        # Calculate weighted average progress
+
                         if total_weight > 0:
-                            planned_progress = planned_progress / total_weight
-                            actual_progress = actual_progress / total_weight
-                        
-                        # Add to progress data
-                        progress_data.append({
-                            'Date': period,
-                            'Type': 'Planned',
-                            'Progress': planned_progress
-                        })
-                        progress_data.append({
-                            'Date': period,
-                            'Type': 'Actual',
-                            'Progress': actual_progress
-                        })
-                    
-                    # Create S-curve chart
-                    if progress_data:
-                        progress_df = pd.DataFrame(progress_data)
-                        
-                        # Create S-curve line chart
-                        fig_scurve = px.line(
-                            progress_df, 
-                            x='Date', 
-                            y='Progress',
-                            color='Type',
-                            title="Project Progress S-Curve",
-                            labels={'Progress': 'Cumulative Progress (%)', 'Date': 'Date'},
-                            color_discrete_map={'Planned': 'blue', 'Actual': 'green'}
-                        )
-                        
-                        # Add today line and improve layout together with mobile optimizations
-                        today_date = today.date()
-                        fig_scurve.update_layout(
-                            xaxis_title="Date",
-                            yaxis_title="Cumulative Progress (%)",
-                            yaxis=dict(range=[0, 100]),
-                            legend_title="Progress Type",
-                            hovermode="x unified",
-                            autosize=True,
-                            # Mobile optimizations
-                            modebar=dict(orientation='v'),
-                            margin=dict(l=10, r=10, t=30, b=10),
-                            shapes=[
-                                # Vertical line for today
-                                dict(
-                                    type="line",
-                                    xref="x",
-                                    yref="paper",
-                                    x0=today_date,
-                                    y0=0,
-                                    x1=today_date,
-                                    y1=1,
-                                    line=dict(
-                                        color="red",
-                                        width=2,
-                                        dash="dash",
-                                    )
-                                )
-                            ],
-                            annotations=[
-                                # Today label
-                                dict(
-                                    x=today_date,
-                                    y=1.05,
-                                    xref="x",
-                                    yref="paper",
-                                    text="Today",
-                                    showarrow=False,
-                                    font=dict(color="red", size=12),
-                                )
-                            ]
-                        )
-                        
-                        st.plotly_chart(fig_scurve, use_container_width=True)
-                        
-                        # Add Earned Value Metrics
-                        st.markdown("### 📈 Earned Value Metrics")
-                        
-                        # Calculate current metrics (with error handling)
-                        try:
-                            latest_periods = [p for p in time_periods if p <= today.date()]
-                            if latest_periods:
-                                latest_period = max(latest_periods)
-                                
-                                planned_df = progress_df[(progress_df['Type'] == 'Planned') & 
-                                                     (progress_df['Date'] == latest_period)]
-                                actual_df = progress_df[(progress_df['Type'] == 'Actual') & 
-                                                    (progress_df['Date'] == latest_period)]
-                                
-                                if not planned_df.empty and not actual_df.empty:
-                                    current_planned = planned_df['Progress'].values[0]
-                                    current_actual = actual_df['Progress'].values[0]
-                                    
-                                    # Schedule Performance Index (SPI)
-                                    spi = current_actual / current_planned if current_planned > 0 else 1
-                                else:
-                                    # Default values if data is missing
-                                    current_planned = 0
-                                    current_actual = 0
-                                    spi = 1
-                            else:
-                                # No periods before today
-                                current_planned = 0
-                                current_actual = 0
-                                spi = 1
-                        except Exception as e:
-                            st.error(f"Error calculating metrics: {e}")
+                            planned_progress = (planned_progress / total_weight) * 100
+                            actual_progress = (actual_progress / total_weight) * 100
+                        else:
+                            planned_progress = 0
+                            actual_progress = 0
+
+                        progress_data.append({'Date': period, 'Type': 'Planned', 'Progress': planned_progress})
+                        progress_data.append({'Date': period, 'Type': 'Actual', 'Progress': actual_progress})
+
+                    # Convert to DataFrame
+                    progress_df = pd.DataFrame(progress_data)
+                    progress_df['Date'] = pd.to_datetime(progress_df['Date'])
+                    progress_df = progress_df.sort_values(by=["Type", "Date"])
+
+                    # Ensure cumulative max
+                    for t in ['Planned', 'Actual']:
+                        mask = progress_df['Type'] == t
+                        progress_df.loc[mask, 'Progress'] = progress_df.loc[mask, 'Progress'].cummax()
+
+                    # Plot S-Curve
+                    fig_scurve = px.line(
+                        progress_df,
+                        x='Date',
+                        y='Progress',
+                        color='Type',
+                        title="Project Progress S-Curve",
+                        labels={'Progress': 'Cumulative Progress (%)', 'Date': 'Date'},
+                        color_discrete_map={'Planned': 'blue', 'Actual': 'green'}
+                    )
+
+                    fig_scurve.update_layout(
+                        xaxis_title="Date",
+                        yaxis_title="Cumulative Progress (%)",
+                        yaxis=dict(range=[0, 100]),
+                        legend_title="Progress Type",
+                        hovermode="x unified",
+                        autosize=True,
+                        modebar=dict(orientation='v'),
+                        margin=dict(l=10, r=10, t=30, b=10),
+                        shapes=[
+                            dict(
+                                type="line",
+                                xref="x",
+                                yref="paper",
+                                x0=today_date,
+                                y0=0,
+                                x1=today_date,
+                                y1=1,
+                                line=dict(color="red", width=2, dash="dash")
+                            )
+                        ],
+                        annotations=[
+                            dict(
+                                x=today_date,
+                                y=1.05,
+                                xref="x",
+                                yref="paper",
+                                text="Today",
+                                showarrow=False,
+                                font=dict(color="red", size=12),
+                            )
+                        ]
+                    )
+
+                    st.plotly_chart(fig_scurve, use_container_width=True)
+
+                    # Earned Value Metrics
+                    st.markdown("### 📈 Earned Value Metrics")
+
+                    try:
+                        time_periods = pd.to_datetime(progress_df['Date'].unique())
+                        latest_periods = [p for p in time_periods if p <= today_date]
+
+                        if latest_periods:
+                            latest_period = max(latest_periods)
+
+                            planned_val = progress_df[
+                                (progress_df['Type'] == 'Planned') &
+                                (progress_df['Date'] == latest_period)
+                            ]['Progress'].mean()
+
+                            actual_val = progress_df[
+                                (progress_df['Type'] == 'Actual') &
+                                (progress_df['Date'] == latest_period)
+                            ]['Progress'].mean()
+
+                            current_planned = float(planned_val) if pd.notnull(planned_val) else 0
+                            current_actual = float(actual_val) if pd.notnull(actual_val) else 0
+
+                            spi = current_actual / current_planned if current_planned > 0 else 0
+                        else:
                             current_planned = 0
                             current_actual = 0
-                            spi = 1
-                        
-                        # Display metrics
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Planned Progress", f"{current_planned:.1f}%")
-                        with col2:
-                            st.metric("Actual Progress", f"{current_actual:.1f}%")
-                        with col3:
-                            # SPI < 1 means behind schedule
-                            delta_color = "normal" if spi >= 1 else "inverse"
-                            st.metric("SPI", f"{spi:.2f}", delta=f"{(spi-1)*100:.1f}%", delta_color=delta_color)
-                        
-                        # Performance interpretation
-                        if spi >= 1.1:
-                            st.success("🎯 Project is ahead of schedule!")
-                        elif spi >= 0.9:
-                            st.info("✓ Project is on schedule (within 10% variance).")
-                        else:
-                            st.error("⚠️ Project is behind schedule! Action needed.")
+                            spi = 0
+
+                    except Exception as e:
+                        st.error(f"Error calculating metrics: {e}")
+                        current_planned = 0
+                        current_actual = 0
+                        spi = 0
+
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Planned Progress", f"{current_planned:.1f}%")
+                    with col2:
+                        st.metric("Actual Progress", f"{current_actual:.1f}%")
+                    with col3:
+                        delta_color = "normal" if spi >= 1 else "inverse"
+                        st.metric("SPI", f"{spi:.2f}", delta=f"{(spi-1)*100:.1f}%", delta_color=delta_color)
+
+                    if spi >= 1.1:
+                        st.success("🎯 Project is ahead of schedule!")
+                    elif spi >= 0.9:
+                        st.info("✓ Project is on schedule (within 10% variance).")
                     else:
-                        st.info("No progress data available for the selected time period.")
-                else:
-                    st.info("S-Curve tracking requires progress data. Add % COMPLETE column to your dataset.")
+                        st.error("⚠️ Project is behind schedule! Action needed.")
+
             
             # Task Details Panel Tab
             with timeline_tabs[2]:
@@ -1291,60 +1286,7 @@ def main():
         else:
             st.info("No active tasks to recommend.")
 
-    # --- Search & Advanced Filtering ---
-    with section_card("🔎 Search & Advanced Filtering"):
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            search_term = st.text_input("Search in tasks", placeholder="Enter keywords...")
-            
-            if search_term:
-                search_results = original_df[
-                    original_df['JENIS PEKERJAAN'].str.contains(search_term.upper(), na=False) |
-                    original_df['KONTRAK'].str.contains(search_term.upper(), na=False)
-                ]
-                
-                if not search_results.empty:
-                    st.write(f"Found {len(search_results)} results:")
-                    search_display = search_results[['KONTRAK', 'JENIS PEKERJAAN', 'STATUS']].rename(
-                        columns={'KONTRAK': 'Project', 'JENIS PEKERJAAN': 'Task'}
-                    )
-                    st.dataframe(search_display, use_container_width=True)
-                else:
-                    st.write("No matching tasks found.")
-        
-        with col2:
-            st.write("Date Range Filter")
-            date_col = st.selectbox("Select date column", ['START', 'PLAN END'])
-            
-            # Get min and max dates from the data
-            date_series = pd.to_datetime(original_df[date_col], errors='coerce').dropna()
-            if not date_series.empty:
-                min_date = date_series.min().date()
-                max_date = date_series.max().date()
-                
-                date_range = st.date_input(
-                    "Select date range",
-                    value=(min_date, max_date),
-                    min_value=min_date,
-                    max_value=max_date
-                )
-                
-                if len(date_range) == 2:
-                    start_date, end_date = date_range
-                    filtered_by_date = original_df[
-                        (pd.to_datetime(original_df[date_col], errors='coerce').dt.date >= start_date) &
-                        (pd.to_datetime(original_df[date_col], errors='coerce').dt.date <= end_date)
-                    ]
-                    
-                    st.write(f"Found {len(filtered_by_date)} tasks in selected date range")
-                    if not filtered_by_date.empty:
-                        st.dataframe(
-                            filtered_by_date[['KONTRAK', 'JENIS PEKERJAAN', date_col]].head(10),
-                            use_container_width=True
-                        )
-            else:
-                st.write(f"No valid dates found in {date_col} column")
+
 
     # --- Project Zone Map ---
     with section_card("🗺️ Zone-Based Project Progress Map"):

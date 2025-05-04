@@ -351,6 +351,46 @@ def section_card(title=None):
     
     return container
 
+
+import streamlit as st
+
+# --- Basic User Database ---
+USERS = {
+    'admin': {'password': 'admin123', 'role': 'admin'},
+    'john': {'password': 'john123', 'role': 'viewer'},
+    'sarah': {'password': 'sarahpass', 'role': 'editor'}
+}
+
+# --- Initialize Session State ---
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+
+# --- Login Section ---
+if not st.session_state.logged_in:
+    st.title("🔐 Login")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        user = USERS.get(username)
+        if user and user['password'] == password:
+            st.session_state.logged_in = True
+            st.session_state.user = username
+            st.session_state.role = user['role']
+            st.success(f"Welcome, {username}!")
+            st.rerun()
+        else:
+            st.error("❌ Invalid username or password")
+    st.stop()
+
+# --- Sidebar info & logout ---
+st.sidebar.markdown(f"👤 **User:** {st.session_state.user}")
+st.sidebar.markdown(f"🔑 **Role:** {st.session_state.role}")
+if st.sidebar.button("Logout"):
+    st.session_state.logged_in = False
+    st.rerun()
+
+
 def main():
     # Ensure pandas is available in this scope
     import pandas as pd
@@ -462,7 +502,7 @@ def main():
     kontrak_opts = ['All'] + sorted(original_df['KONTRAK'].dropna().unique())
     selected_kontrak = st.sidebar.selectbox("Filter by KONTRAK", kontrak_opts)
 
-    filter_columns = ['JENIS PEKERJAAN', 'AREA PEKERJAAN', 'SUB AREA PEKERJAAN']
+    filter_columns = [col for col in df.columns if col not in ['KONTRAK', 'NO']]
     selected_filter_col = st.sidebar.selectbox("Filter Column", filter_columns)
     filter_values = ['All'] + sorted(original_df[selected_filter_col].dropna().unique())
     selected_filter_val = st.sidebar.selectbox("Select Value", filter_values)

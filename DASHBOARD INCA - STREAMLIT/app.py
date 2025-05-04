@@ -1043,7 +1043,8 @@ def main():
                         latest_periods = [p for p in time_periods if p <= today_date]
 
                         if latest_periods:
-                            latest_period = max(latest_periods)
+                            latest_period = pd.Timestamp(max(latest_periods))
+
 
                             planned_val = progress_df[
                                 (progress_df['Type'] == 'Planned') &

@@ -1037,34 +1037,33 @@ def main():
 
                     # Earned Value Metrics
                     st.markdown("### 📈 Earned Value Metrics")
-
+                    
                     try:
                         time_periods = pd.to_datetime(progress_df['Date'].unique())
-                        latest_periods = [p for p in time_periods if p <= today_date]
-
+                        latest_periods = [p for p in time_periods if p <= pd.Timestamp(today_date)]
+                    
                         if latest_periods:
-                            latest_period = pd.Timestamp(max(latest_periods))
-
-
+                            latest_period = pd.Timestamp(max(latest_periods))  # ✅ force to Timestamp
+                    
                             planned_val = progress_df[
                                 (progress_df['Type'] == 'Planned') &
                                 (progress_df['Date'] == latest_period)
                             ]['Progress'].mean()
-
+                    
                             actual_val = progress_df[
                                 (progress_df['Type'] == 'Actual') &
                                 (progress_df['Date'] == latest_period)
                             ]['Progress'].mean()
-
+                    
                             current_planned = float(planned_val) if pd.notnull(planned_val) else 0
                             current_actual = float(actual_val) if pd.notnull(actual_val) else 0
-
+                    
                             spi = current_actual / current_planned if current_planned > 0 else 0
                         else:
                             current_planned = 0
                             current_actual = 0
                             spi = 0
-
+                    
                     except Exception as e:
                         st.error(f"Error calculating metrics: {e}")
                         current_planned = 0

@@ -218,6 +218,12 @@ def create_enhanced_tooltip(row):
     """Create an enhanced tooltip with all available task information"""
     tooltip = f"<b>{row['JENIS PEKERJAAN']}</b><br>Project: {row['KONTRAK']}<br>Status: {row['STATUS']}"
     
+    # Add area and sub-area if available
+    if 'AREA PEKERJAAN' in row and not pd.isna(row['AREA PEKERJAAN']):
+        tooltip += f"<br>Area: {row['AREA PEKERJAAN']}"
+    if 'SUB AREA PEKERJAAN' in row and not pd.isna(row['SUB AREA PEKERJAAN']):
+        tooltip += f"<br>Sub Area: {row['SUB AREA PEKERJAAN']}"
+    
     # Add progress if available
     if '% COMPLETE' in row and not pd.isna(row['% COMPLETE']):
         tooltip += f"<br>Progress: {row['% COMPLETE']:.1f}%"
@@ -237,6 +243,7 @@ def create_enhanced_tooltip(row):
         tooltip += "<br><b>MILESTONE</b>"
     
     return tooltip
+
 
 # Critical path functions removed - not being used anymore
         
@@ -502,7 +509,7 @@ def main():
     kontrak_opts = ['All'] + sorted(original_df['KONTRAK'].dropna().unique())
     selected_kontrak = st.sidebar.selectbox("Filter by KONTRAK", kontrak_opts)
 
-    filter_columns = [col for col in df.columns if col not in ['KONTRAK', 'NO']]
+    filter_columns = ['JENIS PEKERJAAN', 'AREA PEKERJAAN', 'SUB AREA PEKERJAAN']
     selected_filter_col = st.sidebar.selectbox("Filter Column", filter_columns)
     filter_values = ['All'] + sorted(original_df[selected_filter_col].dropna().unique())
     selected_filter_val = st.sidebar.selectbox("Select Value", filter_values)
@@ -667,8 +674,10 @@ def main():
         # Create timeline dataframe from original data with additional columns for enhanced features
         timeline_columns = [
             'KONTRAK', 'JENIS PEKERJAAN', 'START', 'PLAN END', 'STATUS', '% COMPLETE', 
-            'TASK_ID', 'TASK_LEVEL', 'IS_MILESTONE', 'PREDECESSORS', 'RESOURCE', 'PLAN_PROGRESS', 'BOBOT'
+            'TASK_ID', 'TASK_LEVEL', 'IS_MILESTONE', 'PREDECESSORS', 'RESOURCE', 'PLAN_PROGRESS', 'BOBOT',
+            'AREA PEKERJAAN', 'SUB AREA PEKERJAAN'  # ⬅️ tambahin ini bro!
         ]
+
         
         # Only include columns that exist in the data
         available_columns = [col for col in timeline_columns if col in original_df.columns]
@@ -720,6 +729,11 @@ def main():
             timeline_df['IS_MILESTONE'] = timeline_df['DURATION'] <= 1
         
         # Format tooltips with enhanced information
+        if 'AREA PEKERJAAN' not in timeline_df.columns:
+            timeline_df['AREA PEKERJAAN'] = ""
+        if 'SUB AREA PEKERJAAN' not in timeline_df.columns:
+            timeline_df['SUB AREA PEKERJAAN'] = ""
+
         timeline_df['Tooltip'] = timeline_df.apply(create_enhanced_tooltip, axis=1)
         
         # Hierarchical view setup
@@ -1139,6 +1153,10 @@ def main():
                         with col1:
                             st.markdown(f"**Project:** {row['KONTRAK']}")
                             st.markdown(f"**Task:** {row['JENIS PEKERJAAN']}")
+                            if 'AREA PEKERJAAN' in row and not pd.isna(row['AREA PEKERJAAN']):
+                                st.markdown(f"**Area Pekerjaan:** {row['AREA PEKERJAAN']}")
+                            if 'SUB AREA PEKERJAAN' in row and not pd.isna(row['SUB AREA PEKERJAAN']):
+                                st.markdown(f"**Sub Area Pekerjaan:** {row['SUB AREA PEKERJAAN']}")
                             st.markdown(f"**Status:** {row['STATUS']}")
                             if 'RESOURCE' in row and not pd.isna(row['RESOURCE']):
                                 st.markdown(f"**Resource:** {row['RESOURCE']}")

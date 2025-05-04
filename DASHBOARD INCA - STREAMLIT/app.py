@@ -462,7 +462,7 @@ def main():
     kontrak_opts = ['All'] + sorted(original_df['KONTRAK'].dropna().unique())
     selected_kontrak = st.sidebar.selectbox("Filter by KONTRAK", kontrak_opts)
 
-    filter_columns = [col for col in df.columns if col not in ['KONTRAK', 'NO']]
+    filter_columns = ['JENIS PEKERJAAN', 'AREA PEKERJAAN', 'SUB AREA PEKERJAAN']
     selected_filter_col = st.sidebar.selectbox("Filter Column", filter_columns)
     filter_values = ['All'] + sorted(original_df[selected_filter_col].dropna().unique())
     selected_filter_val = st.sidebar.selectbox("Select Value", filter_values)
